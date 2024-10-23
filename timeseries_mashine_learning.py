@@ -1,10 +1,10 @@
 from itertools import product
+from sklearn.exceptions import ConvergenceWarning
+import warnings
 import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
 from sklearn.metrics import mean_squared_error
-from sklearn.model_selection import train_test_split
-from sklearn.linear_model import LinearRegression
 from sklearn.linear_model import Lasso
 # First we load the necesaary data
 
@@ -42,7 +42,17 @@ def train_regressor(n,m,d):
     reg = Lasso(alpha=0.01).fit(training_data, y_train[get_max(n,m,d):])
     return reg
 
+def mean_squared_error_trained(n,m,d):
+    try:
+        with warnings.catch_warnings():
+            warnings.filterwarnings("error", category=ConvergenceWarning)
+            x = compute_pred(n, m, d)
+    except ConvergenceWarning:
+        return float('inf')
+    return mean_squared_error(y_test[1:], x)
+
 #print(train_regressor(2,2,3).coef_)
+
 def compute_pred(n,m,d):
     y_pred = y_test[:get_max(n,m,d)]
     z = create_u_train(n,m,d,u_test)
@@ -57,8 +67,40 @@ def compute_pred(n,m,d):
         y_pred = np.append(y_pred, new_y)
     return y_pred
 
-print(mean_squared_error(compute_pred(10,10,6), y_test[1:]))
-plt.plot(range(len(y_test)-1), compute_pred(10,10,6), color = 'black')
+#We will stick to alpha = 0.01 as aour hyperparameter for Lasso.
+
+# Now we need to find the optimal tuple (n,m,d), which minimizes the mean squared error on our test data.
+# Define the hyperparameter grid
+n_values = [1, 2,3,4,5,6,7,8,9, 10]  # Example range for 'n'
+m_values = [1,2,3,4, 5,6,7,8,9, 10]  # Example range for 'm'
+d_values = [1, 2,3,4, 5,6,7,8,9,10]  # Example range for 'd'
+
+# Store the best result
+best_mse = float('inf')  # Start with infinity, to ensure any result is lower
+best_hyperparameters = None  # To store the best (n, m, d) combination
+
+# Iterate over all combinations of hyperparameters
+'''for n, m, d in product(n_values, m_values, d_values):
+    # Compute the MSE for the current combination
+    mse = mean_squared_error_trained(n, m, d)
+    
+    # If this combination gives a lower MSE, update the best result
+    if mse < best_mse:
+        best_mse = mse
+        best_hyperparameters = (n, m, d)
+
+# Output the best hyperparameters and the corresponding MSE.
+
+print(f'Best hyperparameters: n={best_hyperparameters[0]}, m={best_hyperparameters[1]}, d={best_hyperparameters[2]}')'''
+
+# Let's test the code with our ideal values n=10,m=10,d=6 on our test data.
+
+print(mean_squared_error(y_test[1:], compute_pred(1,10,3)))
+plt.plot(range(len(y_test)-1), compute_pred(1,10,3), color = 'black')
 plt.plot(range(len(y_test)-1), y_test[1:], color='red')
 plt.show()
+
+# Next we will create the predictions for u_test.
+
+
 
