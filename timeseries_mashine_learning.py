@@ -1,4 +1,4 @@
-from itertools import product
+#from itertools import product
 from sklearn.exceptions import ConvergenceWarning
 import warnings
 import numpy as np
@@ -10,7 +10,7 @@ from sklearn.linear_model import Lasso
 
 u_train_raw = np.load('/home/internet/Downloads/u_train.npy')
 y_train_raw = np.load('/home/internet/Downloads/output_train.npy')
-u_test = np.load('/home/internet/Downloads/u_test.npy')
+u_test_hand_in = np.load('/home/internet/Downloads/u_test.npy')
 
 
 def get_max(n,m,d):
@@ -42,20 +42,20 @@ def train_regressor(n,m,d):
     reg = Lasso(alpha=0.01).fit(training_data, y_train[get_max(n,m,d):])
     return reg
 
-def mean_squared_error_trained(n,m,d):
+def mean_squared_error_trained(n,m,d,y_starting_values, u_data):
     try:
         with warnings.catch_warnings():
             warnings.filterwarnings("error", category=ConvergenceWarning)
-            x = compute_pred(n, m, d)
+            x = compute_pred(n, m, d, y_starting_values, u_data)
     except ConvergenceWarning:
         return float('inf')
     return mean_squared_error(y_test[1:], x)
 
 #print(train_regressor(2,2,3).coef_)
 
-def compute_pred(n,m,d):
-    y_pred = y_test[:get_max(n,m,d)]
-    z = create_u_train(n,m,d,u_test)
+def compute_pred(n,m,d, y_starting_values, u_data):
+    y_pred = y_starting_values[:get_max(n,m,d)]
+    z = create_u_train(n,m,d,u_data)
     model = train_regressor(n,m,d)
     for k in range(1,len(z)):
         row = z.iloc[k]
@@ -82,7 +82,7 @@ best_hyperparameters = None  # To store the best (n, m, d) combination
 # Iterate over all combinations of hyperparameters
 '''for n, m, d in product(n_values, m_values, d_values):
     # Compute the MSE for the current combination
-    mse = mean_squared_error_trained(n, m, d)
+    mse = mean_squared_error_trained(n, m, d, y_test, u_test)
     
     # If this combination gives a lower MSE, update the best result
     if mse < best_mse:
@@ -95,12 +95,16 @@ print(f'Best hyperparameters: n={best_hyperparameters[0]}, m={best_hyperparamete
 
 # Let's test the code with our ideal values n=10,m=10,d=6 on our test data.
 
-print(mean_squared_error(y_test[1:], compute_pred(1,10,3)))
-plt.plot(range(len(y_test)-1), compute_pred(1,10,3), color = 'black')
+print(mean_squared_error(y_test[1:], compute_pred(1,10,3, y_test, u_test)))
+plt.plot(range(len(y_test)-1), compute_pred(1,10,3, y_test, u_test), color = 'black')
 plt.plot(range(len(y_test)-1), y_test[1:], color='red')
 plt.show()
 
-# Next we will create the predictions for u_test.
+# Next we will create the predictions for u_test. For this remember: Testdaten knüpfen an die Trainingsdaten nahtlos an
+# Deshalb soll man die letzten paar y werte der Trainingsdaten als Ausgang verwenden und dann die letzten 400 vorhergesagten y werte einreichen.
+
+y_pred_hand_in = compute_pred(1,10,3, y_train_raw, u_test_hand_in)[-400:]
+print(y_pred_hand_in)
 
 
 
