@@ -65,8 +65,7 @@ def decoder_block(filters, connections, inputs):
   return x
 
 data_augmentation = tf.keras.Sequential([
-  tf.keras.layers.RandomFlip("horizontal_and_vertical"),
-  tf.keras.layers.RandomRotation(0.2),
+  tf.keras.layers.RandomFlip("horizontal_and_vertical")
 ])
 
 
@@ -76,16 +75,19 @@ def make_model(input_shape):
 
     inputs = keras.Input(shape=input_shape)
 
-    r = data_augmentation(inputs)
+    #r = data_augmentation(inputs)
     s_1, p_1 = encoder_block(64, inputs)
     s_2, p_2 = encoder_block(128, p_1)
+    s_3, p_3 = encoder_block(256, p_2)
 
-    x_1 = baseline_layer(256, p_2)
+    x_1 = baseline_layer(512, p_3)
 
-    x_2 = decoder_block(128, s_2, x_1)
-    x_3 = decoder_block(64, s_1, x_2)
+    x_2 = decoder_block(256, s_3, x_1)
+    x_3 = decoder_block(128, s_2, x_2)
+    x_4 = decoder_block(64, s_1, x_3)
 
-    output = Conv2D(1, 1, activation='sigmoid')(x_3)
+
+    output = Conv2D(1, 1, activation='sigmoid')(x_4)
 
     model = Model(inputs=inputs, outputs=output, name='U-Net')
 
@@ -107,9 +109,9 @@ model = make_model(input_shape=(48,48) + (1,))
 
 def dice_score(exp_output, prediction):
       prediction_cl = tf.identity(prediction)   # <- tensorflow returns a tensor
-
+      prediction_bin = tf.round(prediction_cl)    # <- creating a binary tensor
       # Reshape prediction_cl to match exp_output
-      prediction_cl = tf.reshape(prediction_cl, tf.shape(exp_output)) #<- Reshape prediction_cl, as it is returned as a 1 dim array
+      #prediction_cl = tf.reshape(prediction_cl, tf.shape(exp_output)) #<- Reshape prediction_cl, as it is returned as a 1 dim array
 
       intersect = tf.reduce_sum(tf.multiply(prediction_cl, exp_output)) #<- calculate intersection using element-wise multiplication
 
@@ -117,38 +119,63 @@ def dice_score(exp_output, prediction):
       union = tf.reduce_sum(prediction_cl) + tf.reduce_sum(exp_output)
       dice = (2 * intersect + 1e-7) / (union + 1e-7) #<- add small epsilon to avoid division by zero and cast to float32
       return dice
+    
 
-
-
+def focal_loss_fixed(y_true, y_pred):
+      gamma=2.5
+      alpha=0.25
+      epsilon = tf.keras.backend.epsilon()
+      y_pred = tf.clip_by_value(y_pred, epsilon, 1. - epsilon)
+      y_true = tf.cast(y_true, tf.float32)
+      alpha_t = y_true * alpha + (1 - y_true) * (1 - alpha)
+      p_t = y_true * y_pred + (1 - y_true) * (1 - y_pred)
+      fl = -alpha_t * tf.keras.backend.pow((1 - p_t), gamma) * tf.keras.backend.log(p_t)
+      return tf.keras.backend.mean(fl)
+  
 
 # 'loss=' will be used for the training and 'metrics=' for the evaluation of the model's performance
 
+# We also need a loss function that considers the fact that our craters only make up a small amount of our pictures. Thus the
+# training would be very inbalanced if we didn't punish the prediction of false positives through the use of some additional weights.
+
+def custom_loss(y_true, y_pred, w1, w0):
+    # Use TensorFlow operations instead of a Python for loop
+    b_ce = w1 * y_true * tf.math.log(tf.clip_by_value(y_pred, 1e-7,1)) + w0 * (1 - y_true) * tf.math.log(tf.clip_by_value(1 - y_pred,1e-7,1))
+    b_ce = tf.reduce_sum(b_ce) #<- sum over all elements
+    numpy_op = tf.cast(tf.size(y_true), dtype=tf.float32)  #<- cast to float32 to avoid type error
+    return -b_ce / numpy_op
+
+def weighted_binary_crossentropy(w1, w0):
+  def loss_wrapped(y_true, y_pred):
+    return custom_loss(y_true, y_pred, w1, w0)
+  return loss_wrapped
 model.compile(
-    optimizer=keras.optimizers.Adam(learning_rate=1e-3),
-    loss=keras.losses.BinaryCrossentropy(from_logits=False),     # <- we already applied sigmoid at the end.
-    metrics=[dice_score],
+    optimizer=keras.optimizers.Adam(learning_rate=0.0005, clipvalue=1.0),
+    loss=weighted_binary_crossentropy(0.4, 0.6),
+    metrics=[dice_score, 'accuracy'],
     run_eagerly=False,
     steps_per_execution=1,
     jit_compile="auto",
     auto_scale_loss=True,
 )
 
-early_stopping = EarlyStopping(monitor='val_loss', patience=2)
+early_stopping = EarlyStopping(monitor='val_loss', patience=5)
 
-epochs = 20
+epochs = 40
 
 callbacks = [
-    keras.callbacks.ModelCheckpoint("save_at_{epoch}.keras"),
+    keras.callbacks.ModelCheckpoint("save_at_{epoch}.keras", save_best_only=True),
     early_stopping
 ]
 
 model.fit(
     x = X_train,
     y = y_train,
-    batch_size = 30,
+    batch_size = 15,
     epochs=epochs,
     callbacks=callbacks,
     validation_data= (X_test, y_test)
 )
+
 
 
